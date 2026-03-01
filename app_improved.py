@@ -1,9 +1,9 @@
 """
-Language Detection App with Python
+Language Detection App with Python - Improved Gemini Translation
 ==================================
 Detects the language of user-input text using the langdetect library.
 Shows confidence bars for all detected languages with a clean Streamlit GUI.
-Generates text using the Generative AI model.
+Generates text using the Generative AI model with improved translation.
 """
 
 import streamlit as st
@@ -51,35 +51,99 @@ telugu_keyboard = {
     'Actions': ['␣ Space', '⌫ Backspace']
 }
 
+# English keyboard layout
+english_keyboard = {
+    'Row1': ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+    'Row2': ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+    'Row3': ['Z', 'X', 'C', 'V', 'B', 'N', 'M'],
+    'Numbers': ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+    'Actions': ['␣ Space', '⌫ Backspace', '⇧ Shift', '?', '!', '.', ',']
+}
+
 def translate_text_gemini(text: str) -> dict:
-    """Translate text using Gemini AI for better quality translations."""
+    """Translate text using Gemini AI with improved prompt for accurate translations."""
     try:
-        api_key = configure_gemini_api()
+        api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             return {"success": False, "translated_text": None, "error": "Please configure Gemini API key first"}
         
-        model = GenerativeModel("gemini-pro")
+        configure(api_key=api_key)
+        model = GenerativeModel("gemini-2.5-flash")
         chat = model.start_chat(history=[])
         
-        prompt = f"""Translate the following Telugu text to English. Provide only the direct translation without any explanation or additional text:
-        
-        Telugu: {text}
-        
-        English translation:"""
+        # Improved prompt that focuses on meaning over transliteration
+        prompt = f"""You are a professional Telugu to English translator. Your task is to translate the following Telugu text to natural, fluent English.
+
+IMPORTANT: 
+- Focus on the MEANING, not just transliteration
+- Translate what the text MEANS in English
+- Do NOT just transliterate Telugu sounds
+- Provide natural English that a native speaker would use
+
+Telugu text: {text}
+
+English translation (meaning-based):"""
         
         response = chat.send_message(prompt)
         
         if response and response.text:
             # Extract just the translation part
             translated_text = response.text.strip()
-            if "English translation:" in translated_text:
-                translated_text = translated_text.split("English translation:")[-1].strip()
+            if "English translation" in translated_text:
+                translated_text = translated_text.split("English translation")[-1].strip()
+                if ":" in translated_text:
+                    translated_text = translated_text.split(":", 1)[-1].strip()
             
             return {
                 "success": True,
                 "translated_text": translated_text,
                 "source_lang": "te",
                 "dest_lang": "en",
+                "error": None
+            }
+        else:
+            return {"success": False, "translated_text": None, "error": "Failed to get response from Gemini API"}
+            
+    except Exception as e:
+        return {"success": False, "translated_text": None, "error": f"Gemini API error: {str(e)}"}
+
+def translate_english_to_telugu(text: str) -> dict:
+    """Translate English text to Telugu using Gemini AI."""
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return {"success": False, "translated_text": None, "error": "Please configure Gemini API key first"}
+        
+        configure(api_key=api_key)
+        model = GenerativeModel("gemini-2.5-flash")
+        chat = model.start_chat(history=[])
+        
+        # Prompt for English to Telugu translation
+        prompt = f"""You are a professional English to Telugu translator. Your task is to translate the following English text to natural, fluent Telugu.
+
+IMPORTANT: 
+- Translate the meaning accurately to Telugu
+- Use proper Telugu grammar and vocabulary
+- Provide natural Telugu that a native speaker would use
+- Do NOT just transliterate English sounds
+
+English text: {text}
+
+Telugu translation:"""
+        
+        response = chat.send_message(prompt)
+        
+        if response and response.text:
+            # Extract just the translation part
+            translated_text = response.text.strip()
+            if "Telugu translation:" in translated_text:
+                translated_text = translated_text.split("Telugu translation:")[-1].strip()
+            
+            return {
+                "success": True,
+                "translated_text": translated_text,
+                "source_lang": "en",
+                "dest_lang": "te",
                 "error": None
             }
         else:
@@ -188,7 +252,7 @@ st.markdown("# 🌐 Language Detection & Translation System")
 st.markdown('<p class="subtitle">Detect languages, type in Telugu with virtual keyboard, and translate to English.</p>', unsafe_allow_html=True)
 
 # Tab navigation
-col1, col2, col3 = st.columns([1, 1, 1])
+col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
 with col1:
     if st.button("🔍 Detection", key="detect_tab", use_container_width=True):
         st.session_state.active_tab = "detection"
@@ -196,6 +260,9 @@ with col2:
     if st.button("⌨️ Telugu Keyboard", key="keyboard_tab", use_container_width=True):
         st.session_state.active_tab = "keyboard"
 with col3:
+    if st.button("🔤 English Keyboard", key="english_keyboard_tab", use_container_width=True):
+        st.session_state.active_tab = "english_keyboard"
+with col4:
     if st.button("🔄 Translation", key="translation_tab", use_container_width=True):
         st.session_state.active_tab = "translation"
 
@@ -204,6 +271,8 @@ if "active_tab" not in st.session_state:
     st.session_state.active_tab = "detection"
 if "telugu_text" not in st.session_state:
     st.session_state.telugu_text = ""
+if "english_text" not in st.session_state:
+    st.session_state.english_text = ""
 if "translation_history" not in st.session_state:
     st.session_state.translation_history = []
 if "gemini_api_key" not in st.session_state:
@@ -217,60 +286,6 @@ if st.session_state.gemini_api_key:
         configure(api_key=st.session_state.gemini_api_key)
     except Exception as e:
         st.error(f"Gemini API configuration failed: {str(e)}")
-
-# Gemini API configuration
-def configure_gemini_api():
-    """Configure Gemini API with API key from environment or user input."""
-    api_key = os.getenv("GEMINI_API_KEY", "")
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        api_key = st.text_input("Enter Gemini API Key:", type="password", help="Get your free API key from https://makersuite.google.com/app/apikey")
-        if api_key:
-            st.session_state.gemini_api_key = api_key
-            configure(api_key=api_key)
-            st.success("Gemini API configured!")
-    else:
-        if st.session_state.gemini_api_key:
-            configure(api_key=st.session_state.gemini_api_key)
-            st.success("Using saved Gemini API key!")
-    return api_key or st.session_state.gemini_api_key
-
-def translate_with_gemini(text: str) -> dict:
-    """Translate text using Gemini AI for better quality translations."""
-    try:
-        api_key = configure_gemini_api()
-        if not api_key:
-            return {"success": False, "translated_text": None, "error": "Please configure Gemini API key first"}
-        
-        model = GenerativeModel("gemini-pro")
-        chat = model.start_chat(history=[])
-        
-        prompt = f"""Translate the following Telugu text to English. Provide only the direct translation without any explanation or additional text:
-        
-        Telugu: {text}
-        
-        English translation:"""
-        
-        response = chat.send_message(prompt)
-        
-        if response and response.text:
-            # Extract just the translation part
-            translated_text = response.text.strip()
-            if "English translation:" in translated_text:
-                translated_text = translated_text.split("English translation:")[-1].strip()
-            
-            return {
-                "success": True,
-                "translated_text": translated_text,
-                "source_lang": "te",
-                "dest_lang": "en",
-                "error": None
-            }
-        else:
-            return {"success": False, "translated_text": None, "error": "Failed to get response from Gemini API"}
-            
-    except Exception as e:
-        return {"success": False, "translated_text": None, "error": f"Gemini API error: {str(e)}"}
 
 # Detection Tab
 if st.session_state.active_tab == "detection":
@@ -322,24 +337,36 @@ elif st.session_state.active_tab == "keyboard":
     # Auto-translation settings
     col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        auto_translate = st.checkbox("🔄 Auto-Translate", value=True, help="Automatically translate Telugu text to English")
+        auto_translate = st.checkbox("🔄 Auto-Translate", value=False, help="Automatically translate Telugu text to English (disabled by default)")
     with col2:
-        min_chars = st.number_input("Min characters", value=3, min_value=1, max_value=20, help="Minimum characters before auto-translation")
+        min_chars = st.number_input("Min characters", value=5, min_value=1, max_value=20, help="Minimum characters before auto-translation")
     with col3:
-        translate_delay = st.number_input("Delay (seconds)", value=2, min_value=1, max_value=10, help="Delay between translations to avoid API limits")
+        translate_delay = st.number_input("Delay (seconds)", value=3, min_value=1, max_value=10, help="Delay between translations to avoid API limits")
     
-    # Auto-translate logic
+    # Smart auto-translate logic - only translate when text ends with space or has complete words
     if auto_translate and len(st.session_state.telugu_text.strip()) >= min_chars:
-        # Check if we should translate (avoid too frequent API calls)
-        current_time = time.time()
-        last_translation_time = st.session_state.get('last_translation_time', 0)
-        if current_time - last_translation_time >= translate_delay:
-            with st.spinner("Translating with Gemini AI..."):
-                translation_result = translate_with_gemini(st.session_state.telugu_text)
-                if translation_result["success"]:
-                    st.session_state.last_translation = translation_result
-                    st.session_state.last_translation_time = current_time
-                    st.rerun()
+        # Check if text ends with space (complete word) or contains punctuation
+        telugu_text = st.session_state.telugu_text.strip()
+        should_translate = (
+            telugu_text.endswith(' ') or  # Ends with space (complete word)
+            telugu_text.endswith('.') or   # Ends with period
+            telugu_text.endswith('?') or   # Ends with question mark  
+            telugu_text.endswith('!') or   # Ends with exclamation mark
+            '  ' in telugu_text or         # Contains double space (sentence end)
+            len(telugu_text.split()) >= 3  # Has at least 3 words
+        )
+        
+        if should_translate:
+            # Check if we should translate (avoid too frequent API calls)
+            current_time = time.time()
+            last_translation_time = st.session_state.get('last_translation_time', 0)
+            if current_time - last_translation_time >= translate_delay:
+                with st.spinner("Translating with Gemini AI..."):
+                    translation_result = translate_text_gemini(telugu_text)
+                    if translation_result["success"]:
+                        st.session_state.last_translation = translation_result
+                        st.session_state.last_translation_time = current_time
+                        st.rerun()
     
     st.markdown("**Click the buttons below to type in Telugu:**")
     
@@ -436,10 +463,79 @@ elif st.session_state.active_tab == "keyboard":
     st.markdown("---")
     st.markdown("**Instructions:**")
     st.markdown("1. Click Telugu character buttons to type")
-    st.markdown("2. Enable 🔄 Auto-Translate for real-time translation")
+    st.markdown("2. 🔄 Auto-Translate is OFF by default (enable if needed)")
     st.markdown("3. Use ␣ for spaces and ⌫ to delete")
-    st.markdown("4. Adjust minimum characters and delay as needed")
-    st.markdown("5. Click � Translate Now for instant translation")
+    st.markdown("4. Click 🔄 **Translate Now** to translate your text")
+    st.markdown("5. Translation only happens when you click the button")
+    st.markdown("6. Adjust settings if you enable auto-translation")
+
+# English Keyboard Tab
+elif st.session_state.active_tab == "english_keyboard":
+
+    st.markdown("### 🔤 English to Telugu Translation")
+    
+    # Text input area for English
+    english_input = st.text_area("Type your English text here:",
+                                   placeholder="Type your English text here and click translate to convert to Telugu...",
+                                   height=150,
+                                   key="english_input_area")
+    
+    # Update session state with input
+    if english_input != st.session_state.get("english_text", ""):
+        st.session_state.english_text = english_input
+    
+    # Display current English text
+    if st.session_state.english_text:
+        st.markdown(f'<div style="background: #f0f9ff; border: 1px solid #0ea5e9; padding: 1rem; border-radius: 8px; font-size: 1.2rem; text-align: center;">{st.session_state.english_text}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px; text-align: center; color: #64748b;">Start typing English text above...</div>', unsafe_allow_html=True)
+    
+    # Action buttons
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        if st.button("🔄 Translate to Telugu", use_container_width=True, type="primary"):
+            if st.session_state.english_text.strip():
+                with st.spinner("Translating to Telugu..."):
+                    translation_result = translate_english_to_telugu(st.session_state.english_text)
+                    st.session_state.last_english_translation = translation_result
+                    st.session_state.last_english_translation_time = time.time()
+                    st.rerun()
+    with col2:
+        if st.button("🗑️ Clear Text", use_container_width=True):
+            st.session_state.english_text = ""
+            st.rerun()
+    with col3:
+        if st.button("📋 Copy Text", use_container_width=True):
+            if st.session_state.english_text:
+                st.markdown(f"""
+                <script>
+                navigator.clipboard.writeText('{st.session_state.english_text}');
+                </script>
+                """, unsafe_allow_html=True)
+                st.success("Text copied to clipboard!")
+    
+    # Show translation result if available
+    if hasattr(st.session_state, 'last_english_translation') and st.session_state.last_english_translation:
+        result = st.session_state.last_english_translation
+        if result["success"]:
+            st.markdown("### 🔄 Translation Result")
+            st.markdown(f"""
+                <div class="translation-box">
+                    <strong>English:</strong> {st.session_state.english_text}<br><br>
+                    <strong>Telugu:</strong> {result['translated_text']}
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.error(f"Translation Error: {result['error']}")
+    
+    # Instructions
+    st.markdown("---")
+    st.markdown("**Instructions:**")
+    st.markdown("1. Type English text in the text area above")
+    st.markdown("2. Click 🔄 **Translate to Telugu** to convert")
+    st.markdown("3. Translation only happens when you click the button")
+    st.markdown("4. Use Clear Text to start over")
+    st.markdown("5. Copy Text to copy your English input")
 
 # Translation Tab
 elif st.session_state.active_tab == "translation":
@@ -495,32 +591,18 @@ elif st.session_state.active_tab == "translation":
 # SIDEBAR
 # =============================================================================
 with st.sidebar:
-    st.markdown("### � Gemini API Configuration")
-    
-    # API Key input
-    api_key_input = st.text_input("Enter Gemini API Key:", 
-                                   type="password", 
-                                   value=st.session_state.gemini_api_key,
-                                   help="Get your free API key from https://makersuite.google.com/app/apikey")
-    
-    if api_key_input != st.session_state.gemini_api_key:
-        st.session_state.gemini_api_key = api_key_input
-        if api_key_input:
-            try:
-                configure(api_key=api_key_input)
-                st.success("✅ Gemini API configured!")
-            except Exception as e:
-                st.error(f"❌ Failed to configure Gemini API: {str(e)}")
+    st.markdown("### 🔧 Gemini API Configuration")
     
     # Show API status
     if st.session_state.gemini_api_key:
         st.success("🟢 Gemini API is configured")
+        st.caption("Using improved translation model")
     else:
         st.warning("🟡 Please enter Gemini API key")
     
     st.markdown("---")
-    st.markdown("### �� Supported Languages")
+    st.markdown("### 📋 Supported Languages")
     for code in sorted(LANGUAGE_NAMES.keys()):
         st.caption(f"• {code} → {LANGUAGE_NAMES[code]}")
     st.markdown("---")
-    st.caption("Built with Python & Streamlit | Gemini AI")
+    st.caption("Built with Python & Streamlit | Gemini AI 2.5 Flash")
