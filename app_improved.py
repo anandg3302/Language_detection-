@@ -8,7 +8,6 @@ Generates text using the Generative AI model with improved translation.
 
 import streamlit as st
 from langdetect import detect_langs, LangDetectException
-from googletrans import Translator
 from google.generativeai import GenerativeModel, configure
 import json
 import time
@@ -153,31 +152,14 @@ Telugu translation:"""
         return {"success": False, "translated_text": None, "error": f"Gemini API error: {str(e)}"}
 
 def translate_text(text: str, dest_lang: str = 'en') -> dict:
-    """Translate text to destination language using available APIs."""
-    # Try Gemini API first (better quality)
-    gemini_result = translate_text_gemini(text)
-    if gemini_result["success"]:
-        return gemini_result
-    
-    # Fallback to Google Translate if Gemini fails
-    try:
-        translator = Translator()
-        result = translator.translate(text, dest=dest_lang)
-        return {
-            "success": True,
-            "translated_text": result.text,
-            "source_lang": result.src,
-            "dest_lang": dest_lang,
-            "error": None
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "translated_text": None,
-            "source_lang": None,
-            "dest_lang": dest_lang,
-            "error": f"Translation failed: {str(e)}"
-        }
+    """Translate text to destination language using Gemini API only."""
+    # Use Gemini API for all translations
+    if dest_lang == 'en':
+        return translate_text_gemini(text)
+    elif dest_lang == 'te':
+        return translate_english_to_telugu(text)
+    else:
+        return {"success": False, "translated_text": None, "error": f"Translation to {dest_lang} not supported"}
 
 def detect_language(text: str) -> dict:
     """Detect language(s) with confidence scores."""
